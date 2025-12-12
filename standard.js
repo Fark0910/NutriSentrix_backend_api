@@ -132,11 +132,14 @@
   };
 userpref={
   sugar:10,
-  carbohydrates:200
+  carbohydrates:200,
+  Allergen:["nuts","gluten"]
 
 }
-  
-module.exports = productStandards;
-module.exports = userpref;
+
+
+
+
+module.exports = {productStandards,userpref};
   
   

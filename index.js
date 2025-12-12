@@ -7,11 +7,13 @@ app.use(express.static(path.join(__dirname, 'uploads')));
 const axios = require('axios');
 const { resolveAny } = require("dns");
 const morgans=require('morgan')
+const gem=require('./gemai.js')
 app.use(morgans('tiny'))
 //const multer = require('multer');
 const fs = require('fs');
 const cors=require('cors')
 require('dotenv').config();
+const parsing=require('./parser.js')
 const productStandard = require('./standard.js');
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, '/views'))
@@ -21,12 +23,54 @@ app.use(cors())
 let EanNum = "Fetching EAN";
 let receivedDistance = "Wait";
 let message="Your Data Will appear here.." //initial message visible in frontend
-//const userpref=require('./standard.js')
+const userpref=require('./standard.js')
 //let router=express.Router()
 //const storage = multer.memoryStorage();
 //const upload = multer({ storage });
 //------------compare user preference,standards and recieved from product scan----------------/
-function compareWithStandards(productObj, standards, userPrefs = {}) {
+//New Improved version
+async function compareWithStandards(productObj, standards, userPrefs = {}) {
+  console.log("Comparing product:", productObj.title);
+  const prompt = `You are a Health Food Minister AI, an expert in food safety and nutrition regulation.  
+Your task is to evaluate a product based on three inputs:  
+- product information:-${JSON.stringify(productObj)} → contains product name(title), nutrition facts, and ingredients.  
+- product standards:-${JSON.stringify(standards)} → contains global/FSSAI-style daily limits, allergens, and harmful substances list.  
+- user preferences:-${JSON.stringify(userPrefs)} → contains the users health preferences (like sugar limits, allergens to avoid, etc.).  
+
+Compare the nutritional values, ingredients, and known risks of the product information with both user preferences and product standards.
+
+In your evaluation:
+- If the product is safe, mention that it meets user and product standards.
+- If the product exceeds limits (like sugar, fat, sodium, caffeine, etc.), mention what exceeds and why.
+- If any user allergens or flagged ingredients are present, mention them clearly.
+- If the product contains any potentially harmful chemical (even if not listed in productStandards), use your knowledge to identify and flag it (e.g., artificial colorants, preservatives, trans fat, etc.).
+- If user preferences are missing and empty, rely solely on product standards for evaluation, and use general health guidelines beyond standards if needed.
+- If product information is incomplete that is ingredients and nutrition are not complete use title and your professional knowledge to infer potential risks based on available data from various best sources.
+Your tone: professional, health-conscious, and factual — like an FSSAI or WHO nutrition report.Dont hallucinate and generate wrong output and consider whats given
+
+Output Format (Strictly JSON, nothing else):
+{
+  "title": "<product title take it from product information>",
+  "status": "active",
+  "alerts": [
+    {
+      "desc": "<clear and short explanation — e.g., ✅ All clear. Product matches both your preferences and global standards. OR ⚠️ Contains high sugar and allergen: nuts.>",
+      "flag": "<safe | unsafe>"
+    }
+  ]
+}`;
+  try{
+    const aiResp = await gem(prompt);
+    const its=await parsing(aiResp)
+    console.log(prompt)
+    return its;
+} catch(error){
+  return error
+}
+
+  
+
+  /*
   const result = {
     title: productObj.title,
     status: "active",
@@ -123,15 +167,31 @@ function compareWithStandards(productObj, standards, userPrefs = {}) {
       flag: "safe",
     });
   }
-
-  return result;
+*/
+ 
 }
 //------------Processing barcode look response to get ingredients and nutrion values of product----------------//
 
-function processProductData(response) {
-  const product = response.products?.[0];
-  if (!product) return null;
+async function processProductData(response,num) {
+  if(!response.products){
+    const findfromEan=`Search the product with EAN ${num} from OpenFoodFacts, BarcodeLookup and similar public databases to identify its name, common ingredients, and nutritional information as of 2025.Only output json object
+    {"title":"<product name from ean search>",
+    "size":"<typical size if available>",
+    "imageUrl":"<product image url if available>",
+    "nutrition":"<all nutrition with values>"
+    "ingredients": {
+      "list": "<ingredientsList>"  //an array of ingredients
+    },
+    "EAN":"<EAN number used for search>"
+  }`
+    const aiResp = await gem(findfromEan);
+    const its=await parsing(aiResp)
+    console.log(findfromEan)
+    return its
 
+
+  }
+  const product = response.products?.[0];
   const title = product.title || "";
   const size = product.size || "";
   const imageUrl = product.images?.[0] || "";
@@ -180,7 +240,8 @@ function processProductData(response) {
     nutrition,
     ingredients: {
       list: ingredientsList
-    }
+    },
+    EAN:num
   };
 }
 //------------Processing barcode look response to get ingredients and nutrion values of product----------------//
@@ -189,11 +250,22 @@ const keys=[process.env.harshit_key,process.env.vivek_key,process.env.Deepak_key
 const barcodelookup=async(num)=>{
            const randomkey = Math.floor(Math.random() * 4);
            const keyz=keys[randomkey]
-           let taker="https://api.barcodelookup.com/v3/products?barcode="+`${num}`+"&formatted=y&key="+keyz;
-           responser =await axios.get(taker) 
+           console.log("Barcodelookup key used")
+           let taker="https://api.barcodelookup.com/v3/products?barcode="+`${num}`+`&formatted=y&key=${process.env.farking}`;
+           try{
+            responser =await axios.get(taker) 
+            k=processProductData(responser.data,num)
+
+           }catch(err){
+            j={error:"Failed to fetch from barcodelookup-api limit reached or invalid EAN"}
+            console.log("nothing found from barcodelookup")
+            k=processProductData(j,num)
+
+           }
+          
            //console.log(taker)
            //console.log(responser.data)
-           k=processProductData(responser.data)      
+                
            return k
   }
   
@@ -250,7 +322,7 @@ const wifiverify = async function (req, res, next) {
 
 app.get('/',async(req,res)=>{
     
-    //await axios.get("https://barcodedecoder.onrender.com")
+    await axios.get("https://barcodedecoder.onrender.com")
     
     res.render("index", { EanNum,message});
 
@@ -261,9 +333,9 @@ app.get('/faker',async(req,res)=>{
   //z=await barcodelookup('8901595961443')
   //m=compareWithStandards(z,productStandard, userpref)
 
-  //console.log(m)
-
-  //res.status(200).json({ received: z})
+  ////console.log(z)
+  //console.log(prompt)
+  //res.status(200).json({ received: m})
 
 })
 
@@ -284,12 +356,13 @@ app.post('/fastapires', (req, res) => {
 
 //------------Main route accessed by esp32cam----------------//
 let final_Decision=""
-app.get('/nutri', wifiverify, async (req, res) => {
+//middleware:-wifiverify
+app.get('/nutri', async (req, res) => {
   const ean = req.query.ean;
-  //const wifiid = req.query.wifiid;
+  const wifiid = req.query.wifiid;
   console.log(ean)
   console.log(uid)
-
+  
   
   try {
     
@@ -304,21 +377,32 @@ app.get('/nutri', wifiverify, async (req, res) => {
 
     const data = userDocSnap.data();
     console.log(data)
-    z=await barcodelookup(`${ean}`)
-    final_Decision=compareWithStandards(z,productStandard,data)
-    message="done"
-    console.log(final_Decision)
-    res.json({
-      message: "User data fetched successfully",
-      esp:final_Decision
-    });
     
 
   } catch (err) {
-    console.error("Error fetching user data from xyz:", err);
+    console.error("Error fetching user data about userpreference", err);
     res.status(500).json({ message: "Server error" });
   } 
+  try {
+    z=await barcodelookup(`${ean}`)
+    console.log(z)
+    final_Decision=await compareWithStandards(z,productStandard,data)
+    console.log(final_Decision)
+    res.json({
+      message1:"Fetching product info using EAN from Barcodelookup",
+      message2:"Fetching user preferences from database",
+      message3:"Passing the result to gemini and Finalizing response...",
+      message4:"Sending Response from server..",
+      final:final_Decision,
+     
+    })
+  }
+  catch (err) {
+    res.json({
+      error:`Failed to find/evaluate-${err}`
+    })
 
+  }
 
 
 });

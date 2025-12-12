@@ -10,6 +10,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@google/genai": "^1.27.0",
     "@zxing/library": "^0.21.3",
     "axios": "^1.7.9",
     "canvas": "^3.1.0",
